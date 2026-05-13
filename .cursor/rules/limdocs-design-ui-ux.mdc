@@ -1,0 +1,40 @@
+---
+description: Limdocs design, bilingual RTL/LTR UI, visual language, and accessibility for the React SPA
+globs: frontend/**/*.{js,jsx,css}
+alwaysApply: false
+---
+
+# Limdocs — Design & UI/UX Guidelines
+
+These guidelines apply to the **Limdocs** React SPA (`frontend/`): adaptive course spaces, materials upload, document processing status, question sets, and future attempts / analytics screens.
+
+## Product & language context
+
+- **Bilingual UI:** Hebrew and English are first-class. Follow `frontend/src/language-control/languageContent.js` patterns: add or update keys under logical sections (`login`, `home`, `coursePage`, etc.); never hardcode user-visible strings in JSX except truly invariant technical tokens.
+- **Direction:** Support **RTL (Hebrew)** and **LTR (English)** via the app’s language/direction handling (`dir`, layout, margins). Prefer logical CSS (`margin-inline`, `padding-inline`, `border-inline-end`) so sidebars and nav align correctly in both modes.
+- **Brand:** Keep the product name **“Limdocs”** in Latin characters even in Hebrew UI lines where the rest of the sentence is Hebrew (per existing localization decisions).
+
+## Visual language
+
+- **Minimal, premium, academic:** Clean surfaces, ample whitespace, readable type, soft corners. Avoid noisy borders, heavy gradients, or cluttered dashboards. The course materials area should feel calm and “study focused,” not gamified.
+- **Accent:** The app already leans **purple / indigo** for shell and accents; keep accents consistent. Use **one** primary accent family plus neutrals (white/gray). Status and actions should not compete with each other visually.
+- **Course space layout:** Prefer the established **two-column** pattern: inner section nav + main content. Inner nav active state = **soft tint + accent text**, not a solid primary button. Avoid turning the whole body into a heavy card; structure belongs on the page surface (`--surface-page` style separation), not oversized outer frames.
+
+## Components & states
+
+- **Courses & visibility:** UI must reflect **PRIVATE vs PUBLIC** courses clearly but quietly (badges, helper text), aligned with backend enums (`PUBLIC` / `PRIVATE`).
+- **Documents:** Show **filename**, **created time**, and **processing state** with a **soft pill** badge (processing / ready / error). Map DynamoDB-style statuses (`UPLOADED`, `EXTRACTED`, `GENERATED`, `FAILED`) to localized, user-friendly labels; polling/refetch is expected—loading must not flash or jump layout.
+- **Modals:** Use **in-app modals** (create course, upload, confirm delete) consistent with existing patterns—**do not** use `window.confirm` for destructive actions.
+- **Destructive actions:** Per-card or toolbar delete must include clear confirmation, disabled/in-flight states, and optimistic or refetched list updates without leaving orphan UI.
+
+## Motion
+
+- **Subtle only:** Short fades or transforms for modal open/close, hover elevation on cards, discrete focus rings. No long or bouncy animations. If introducing a library (e.g. Framer Motion), keep durations small and motion reduced where appropriate.
+
+## Accessibility
+
+- Meaningful **labels**, **aria** attributes, and **keyboard** support for modals (Escape, focus trap where already established), upload dropzone, and list actions. Deleting or uploading must be announced or labeled for screen readers via existing `aria-*` conventions in the codebase.
+
+## Authority & docs
+
+- For product behavior, enums, and data concepts, treat **`docs/design.md`** as the textual source of truth. When the PDF design and `design.md` disagree, the **PDF** wins per project notes. For **CoursePage** materials layout and styling intent, also follow **`docs/course-documents-plan.md`**.

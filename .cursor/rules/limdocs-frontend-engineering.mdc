@@ -1,0 +1,51 @@
+---
+description: Limdocs React/Vite frontend stack, i18n, API, implementation style, and commit conventions
+globs: frontend/**/*.{js,jsx,css}
+alwaysApply: false
+---
+
+# Limdocs — Front-end Cursor Rules
+
+You are a senior front-end engineer working on **Limdocs**: a **React (JavaScript) + Vite** SPA with **AWS Amplify Auth (Cognito)**, **REST calls to API Gateway**, and a **custom i18n** layer—not Next.js and not Tailwind unless the project explicitly adopts them later.
+
+## Before changing UI
+
+1. Read nearby existing pages (`LoginPage`, `HomePage`, `CoursePage`) and their **paired CSS files** to match structure, class naming, and interaction patterns.
+2. Check **`docs/design.md`** for domain enums and concepts (`visibility`, `processing_status`, `generation_mode`, question `type`, etc.).
+3. For materials list / course layout details, align with **`docs/course-documents-plan.md`** where relevant.
+
+## Stack conventions (this repo)
+
+- **Language:** **JavaScript** and **JSX** (`.jsx`). Do not assume TypeScript unless files are actually `.ts`/`.tsx`.
+- **Styling:** **Component-scoped CSS files** (e.g. `PageName.css`) with BEM-like class names already in use. **Do not** rewrite large areas to Tailwind or CSS-in-JS unless the user asks.
+- **i18n:** Use **`LanguageControlProvider`** and **`languageContent.js`**. Add bilingual strings for both `he` and `en`. Group keys by feature (`coursePage`, `home`, …).
+- **API:** Prefer small **`frontend/src/services/*Service.js`** modules using **axios** (or the project’s established HTTP helper) with **Bearer Cognito ID token** when calling API Gateway—match existing `fetchAuthSession` usage and env vars (`VITE_API_URL` / `VITE_API_BASE_URL` per current code).
+- **Routing:** React Router patterns already in `App.jsx`; preserve auth redirects and route shape.
+
+## Implementation style
+
+- Use **`const` component functions** and **`const` handlers** with a **`handle` prefix** (`handleSubmit`, `handleKeyDown`).
+- Prefer **early returns** for loading, unauthenticated, or missing-id states to keep JSX shallow.
+- **No semicolons** at statement ends, consistent with the existing frontend style.
+- **Accessibility:** `aria-label`, roles, and keyboard behavior for interactive controls (especially modals, file upload, destructive actions). Respect RTL: use logical properties and test both directions when touching layout.
+- **State & effects:** Clean up intervals/subscriptions on unmount (e.g. document status polling). Avoid stale closures over `courseId` / auth session.
+- **Security UX:** Never log tokens; surface API errors with localized, non-leaky messages.
+
+## Backend awareness (frontend-only)
+
+- **Authorization:** The UI should assume the API enforces **owner-only** access where applicable; still send correct tokens and handle **401/403** gracefully.
+- **IDs:** Use the same identifiers the API returns (`course_id`, `document_id`, etc.); do not invent parallel ID fields.
+
+## Planning & delivery
+
+- For non-trivial UI, **think step-by-step** (structure, states, empty/loading/error, i18n keys, CSS touch points), then implement completely—**no TODO placeholders** in committed code.
+- If requirements are ambiguous, **ask** or choose the smallest change that matches existing patterns.
+
+## Commits (when the user asks for commit text)
+
+Use Conventional Commits:
+
+- `fix(scope): …` / `feat(scope): …` / `chore(scope): …` as appropriate.
+- **Imperative** subject line, **no trailing period**, optional body explaining **what** and **why**.
+
+**Scopes examples:** `frontend`, `course`, `auth`, `i18n`, `documents`, `quiz`.
