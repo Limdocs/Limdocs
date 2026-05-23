@@ -197,6 +197,38 @@ Resources:
           Projection:
             ProjectionType: ALL
 
+  AttemptsTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      TableName: attempts
+      BillingMode: PAY_PER_REQUEST
+      AttributeDefinitions:
+        - AttributeName: user_name
+          AttributeType: S
+        - AttributeName: submitted_at
+          AttributeType: S
+      KeySchema:
+        - AttributeName: user_name
+          KeyType: HASH
+        - AttributeName: submitted_at
+          KeyType: RANGE
+
+  AttemptAnswersTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      TableName: attempt_answers
+      BillingMode: PAY_PER_REQUEST
+      AttributeDefinitions:
+        - AttributeName: attempt_id
+          AttributeType: S
+        - AttributeName: question_id
+          AttributeType: S
+      KeySchema:
+        - AttributeName: attempt_id
+          KeyType: HASH
+        - AttributeName: question_id
+          KeyType: RANGE
+
   LimdocsApi:
     Type: AWS::Serverless::Api
     Properties:
@@ -467,6 +499,32 @@ Resources:
             Path: /courses/{courseId}/question-sets/{setId}
             Method: delete
 
+  SubmitAttemptFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: limdocs-submit-attempt
+      CodeUri: src/
+      Handler: submit_attempt.lambda_handler
+      Runtime: python3.9
+      # LabRole must include dynamodb:GetItem/Query on question_sets and questions,
+      # and dynamodb:PutItem/BatchWriteItem on attempts and attempt_answers.
+      Role: !Sub "arn:aws:iam::${AWS::AccountId}:role/LabRole"
+      Environment:
+        Variables:
+          COURSES_TABLE: !Ref LimdocsCoursesTable
+          QUESTION_SETS_TABLE: !Ref QuestionSetsTable
+          QUESTIONS_TABLE: !Ref QuestionsTable
+          ATTEMPTS_TABLE: !Ref AttemptsTable
+          ATTEMPT_ANSWERS_TABLE: !Ref AttemptAnswersTable
+          QUESTIONS_SET_INDEX: SetIdIndex
+      Events:
+        ApiEvent:
+          Type: Api
+          Properties:
+            RestApiId: !Ref LimdocsApi
+            Path: /courses/{courseId}/question-sets/{setId}/attempts
+            Method: post
+
 Outputs:
   UserPoolId:
     Description: Cognito User Pool ID
@@ -519,3 +577,11 @@ Outputs:
   QuestionsTableName:
     Description: DynamoDB table name for generated questions
     Value: !Ref QuestionsTable
+
+  AttemptsTableName:
+    Description: DynamoDB table name for quiz attempt summaries
+    Value: !Ref AttemptsTable
+
+  AttemptAnswersTableName:
+    Description: DynamoDB table name for per-question attempt answers
+    Value: !Ref AttemptAnswersTable

@@ -867,6 +867,44 @@
 .course-page__question-option--correct {
   border-color: var(--success-edge-medium);
   background: var(--success-surface-ghost);
+  color: var(--success-fg);
+}
+
+.course-page__question-option--incorrect {
+  border-color: var(--danger-edge-medium);
+  background: var(--danger-surface-ghost);
+  color: var(--danger-fg);
+}
+
+.course-page__question-option--selected {
+  border-color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 12%, var(--surface-page));
+}
+
+.course-page__submit-quiz-btn {
+  display: block;
+  width: 100%;
+  max-width: 280px;
+  margin: 1.25rem auto 0;
+  padding: 0.65rem 1.25rem;
+  border: none;
+  border-radius: 12px;
+  font-family: inherit;
+  font-size: 0.95rem;
+  font-weight: 600;
+  color: var(--text-on-accent);
+  background: var(--accent);
+  box-shadow: var(--shadow-ambient);
+  cursor: pointer;
+}
+
+.course-page__submit-quiz-btn:hover:not(:disabled) {
+  background: var(--accent-hover);
+}
+
+.course-page__submit-quiz-btn:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
 }
 
 .course-page__question-answer,

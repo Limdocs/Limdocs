@@ -3,7 +3,7 @@ import { Navigate, useLocation, useNavigate, useParams, useSearchParams } from '
 import { fetchAuthSession, getCurrentUser } from 'aws-amplify/auth'
 import './CoursePage.css'
 import { useLanguageControl } from '../language-control/LanguageControlProvider.jsx'
-import { deleteCourse, getUserCourses } from '../services/coursesService.js'
+import { deleteCourse, getUserCourses, submitAttempt } from '../services/coursesService.js'
 import {
   deleteDocument,
   deleteQuestionSet,
@@ -97,6 +97,8 @@ export default function CoursePage() {
   const [setQuestionsError, setSetQuestionsError] = useState(null)
   const [questionMode, setQuestionMode] = useState('review')
   const [practiceAnswers, setPracticeAnswers] = useState({})
+  const [practiceStartTime, setPracticeStartTime] = useState(null)
+  const [isSubmittingAttempt, setIsSubmittingAttempt] = useState(false)
   const [setPendingDelete, setSetPendingDelete] = useState(null)
   const [isDeletingSet, setIsDeletingSet] = useState(false)
   const [questionSetsNotice, setQuestionSetsNotice] = useState(null)
@@ -224,6 +226,7 @@ export default function CoursePage() {
         setSelectedQuestionSet(payload?.set ?? null)
         setSetQuestions(Array.isArray(payload?.questions) ? payload.questions : [])
         setPracticeAnswers({})
+        setPracticeStartTime(null)
       } catch (err) {
         const apiMsg = err?.response?.data?.message
         setSetQuestionsError(
@@ -645,8 +648,69 @@ export default function CoursePage() {
   const handleOpenSet = (setItem) => {
     setQuestionMode('review')
     setPracticeAnswers({})
+    setPracticeStartTime(null)
     setSetQuestionsError(null)
     setSelectedQuestionSet(setItem)
+  }
+
+  const handleEnterPracticeMode = () => {
+    setQuestionMode('practice')
+    setPracticeAnswers({})
+    setPracticeStartTime(Date.now())
+    setSetQuestionsError(null)
+  }
+
+  const handleEnterReviewMode = () => {
+    setQuestionMode('review')
+    setPracticeStartTime(null)
+  }
+
+  const handleSubmitQuiz = async () => {
+    const setId = selectedQuestionSet?.set_id
+    if (!courseId || !setId || isSubmittingAttempt) return
+
+    setIsSubmittingAttempt(true)
+    setSetQuestionsError(null)
+    try {
+      const session = await fetchAuthSession()
+      const idToken = session.tokens?.idToken?.toString()
+      if (!idToken) {
+        setSetQuestionsError(t.coursePage.uploadMissingSession)
+        return
+      }
+
+      const startedAt = practiceStartTime ?? Date.now()
+      const timeSpentSeconds = Math.floor((Date.now() - startedAt) / 1000)
+      const result = await submitAttempt(
+        courseId,
+        setId,
+        {
+          time_spent_seconds: timeSpentSeconds,
+          answers: practiceAnswers,
+        },
+        idToken,
+      )
+
+      const score = result?.score
+      setQuestionSetsNotice(
+        tx(t.coursePage.submitQuizSuccess, {
+          score: score !== undefined && score !== null ? score : '—',
+        }),
+      )
+      setQuestionMode('review')
+      setPracticeStartTime(null)
+    } catch (err) {
+      const apiMsg = err?.response?.data?.message
+      if (typeof apiMsg === 'string' && apiMsg.trim()) {
+        setSetQuestionsError(apiMsg.trim())
+      } else if (typeof err?.message === 'string' && err.message.includes('VITE_API_URL')) {
+        setSetQuestionsError(t.coursePage.uploadApiNotConfigured)
+      } else {
+        setSetQuestionsError(t.coursePage.submitQuizError)
+      }
+    } finally {
+      setIsSubmittingAttempt(false)
+    }
   }
 
   const handleDeleteSet = async () => {
@@ -1006,14 +1070,14 @@ export default function CoursePage() {
                       <button
                         type="button"
                         className={`course-page__mode-btn ${questionMode === 'review' ? 'course-page__mode-btn--active' : ''}`}
-                        onClick={() => setQuestionMode('review')}
+                        onClick={handleEnterReviewMode}
                       >
                         {t.coursePage.reviewMode}
                       </button>
                       <button
                         type="button"
                         className={`course-page__mode-btn ${questionMode === 'practice' ? 'course-page__mode-btn--active' : ''}`}
-                        onClick={() => setQuestionMode('practice')}
+                        onClick={handleEnterPracticeMode}
                       >
                         {t.coursePage.practiceMode}
                       </button>
@@ -1028,53 +1092,84 @@ export default function CoursePage() {
                     </p>
                   ) : null}
                   {!setQuestionsLoading ? (
-                    <ol className="course-page__question-list">
-                      {setQuestions.map((question, index) => {
-                        const qid = String(question.question_id ?? question.questionId ?? `q-${index}`)
-                        const selectedIndex = practiceAnswers[qid]
-                        const shouldReveal = questionMode === 'review' || selectedIndex !== undefined
-                        return (
-                          <li key={qid} className="course-page__question-card">
-                            <p className="course-page__question-title">{question.question}</p>
-                            <ul className="course-page__question-options">
-                              {(Array.isArray(question.options) ? question.options : []).map((opt, optIndex) => {
-                                const isCorrect = Number(question.correct_index) === optIndex
-                                return (
-                                  <li key={`${qid}-${optIndex}`}>
-                                    <button
-                                      type="button"
-                                      className={`course-page__question-option ${
-                                        shouldReveal && isCorrect ? 'course-page__question-option--correct' : ''
-                                      }`}
-                                      onClick={() =>
-                                        setPracticeAnswers((prev) => ({
-                                          ...prev,
-                                          [qid]: optIndex,
-                                        }))
-                                      }
-                                      disabled={questionMode === 'review' || selectedIndex !== undefined}
-                                    >
-                                      {String.fromCharCode(65 + optIndex)}. {opt}
-                                    </button>
-                                  </li>
-                                )
-                              })}
-                            </ul>
-                            {shouldReveal ? (
-                              <>
-                                <p className="course-page__question-answer">
-                                  {t.coursePage.correctAnswer}:{' '}
-                                  {(question.options || [])[Number(question.correct_index)]}
-                                </p>
-                                <p className="course-page__question-explanation">
-                                  {t.coursePage.aiExplanation}: {question.explanation}
-                                </p>
-                              </>
-                            ) : null}
-                          </li>
-                        )
-                      })}
-                    </ol>
+                    <>
+                      <ol className="course-page__question-list">
+                        {setQuestions.map((question, index) => {
+                          const qid = String(question.question_id ?? question.questionId ?? `q-${index}`)
+                          const selectedIndex = practiceAnswers[qid]
+                          const isPractice = questionMode === 'practice'
+                          const shouldReveal = !isPractice
+                          return (
+                            <li key={qid} className="course-page__question-card">
+                              <p className="course-page__question-title">{question.question}</p>
+                              <ul className="course-page__question-options">
+                                {(Array.isArray(question.options) ? question.options : []).map((opt, optIndex) => {
+                                  const correctIndex = Number(question.correct_index)
+                                  const isCorrectOption = optIndex === correctIndex
+                                  const isIncorrectSelection =
+                                    shouldReveal &&
+                                    selectedIndex !== undefined &&
+                                    selectedIndex === optIndex &&
+                                    selectedIndex !== correctIndex
+                                  const isSelectedInPractice = isPractice && selectedIndex === optIndex
+                                  const optionClassName = [
+                                    'course-page__question-option',
+                                    shouldReveal && isCorrectOption
+                                      ? 'course-page__question-option--correct'
+                                      : '',
+                                    isIncorrectSelection ? 'course-page__question-option--incorrect' : '',
+                                    isSelectedInPractice ? 'course-page__question-option--selected' : '',
+                                  ]
+                                    .filter(Boolean)
+                                    .join(' ')
+                                  return (
+                                    <li key={`${qid}-${optIndex}`}>
+                                      <button
+                                        type="button"
+                                        className={optionClassName}
+                                        onClick={() => {
+                                          if (!isPractice) return
+                                          setPracticeAnswers((prev) => ({
+                                            ...prev,
+                                            [qid]: optIndex,
+                                          }))
+                                        }}
+                                        disabled={!isPractice}
+                                      >
+                                        {String.fromCharCode(65 + optIndex)}. {opt}
+                                      </button>
+                                    </li>
+                                  )
+                                })}
+                              </ul>
+                              {shouldReveal ? (
+                                <>
+                                  <p className="course-page__question-answer">
+                                    {t.coursePage.correctAnswer}:{' '}
+                                    {(question.options || [])[Number(question.correct_index)]}
+                                  </p>
+                                  <p className="course-page__question-explanation">
+                                    {t.coursePage.aiExplanation}: {question.explanation}
+                                  </p>
+                                </>
+                              ) : null}
+                            </li>
+                          )
+                        })}
+                      </ol>
+                      {questionMode === 'practice' && setQuestions.length > 0 ? (
+                        <button
+                          type="button"
+                          className="course-page__submit-quiz-btn"
+                          onClick={handleSubmitQuiz}
+                          disabled={isSubmittingAttempt || Object.keys(practiceAnswers).length === 0}
+                        >
+                          {isSubmittingAttempt
+                            ? t.coursePage.submitQuizSubmitting
+                            : t.coursePage.submitQuiz}
+                        </button>
+                      ) : null}
+                    </>
                   ) : null}
                 </div>
               )}
