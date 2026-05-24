@@ -24,6 +24,70 @@ import {
 
 const FINAL_PROCESSING_STATUSES = new Set(['READY', 'FAILED', 'ERROR'])
 const QUIZ_ELIGIBLE_STATUSES = new Set(['READY', 'FAILED'])
+const DOCUMENT_POLL_INTERVAL_MS = 7000
+const QUIZ_POLL_INTERVAL_MS = 4000
+const QUIZ_POLL_TIMEOUT_MS = 5 * 60 * 1000
+
+function sleep(ms) {
+  return new Promise((resolve) => {
+    window.setTimeout(resolve, ms)
+  })
+}
+
+function getQuizJobStatus(documents, pendingDocIds) {
+  const pending = new Set(pendingDocIds.map((id) => String(id)))
+  if (pending.size === 0) {
+    return { state: 'success' }
+  }
+
+  let anyGenerating = false
+  let anyReady = false
+
+  for (const doc of documents) {
+    const id = String(doc.document_id ?? doc.documentId ?? '')
+    if (!pending.has(id)) continue
+    const status = normalizeProcessingStatus(doc.processing_status ?? doc.processingStatus)
+    if (status === 'GENERATING') {
+      anyGenerating = true
+    } else if (status === 'FAILED' || status === 'ERROR') {
+      const reason = doc.failure_reason ?? doc.failureReason
+      return {
+        state: 'failed',
+        failureReason:
+          typeof reason === 'string' && reason.trim() ? reason.trim() : null,
+      }
+    } else if (status === 'READY') {
+      anyReady = true
+    }
+  }
+
+  if (!anyGenerating && anyReady) {
+    return { state: 'success' }
+  }
+  return { state: 'running' }
+}
+
+async function waitForQuizCompletion(pendingDocIds, loadDocuments, loadQuestionSets, labels) {
+  const startedAt = Date.now()
+  while (Date.now() - startedAt < QUIZ_POLL_TIMEOUT_MS) {
+    const docs = await loadDocuments({ silent: true })
+    await loadQuestionSets({ silent: true })
+    if (Array.isArray(docs)) {
+      const jobStatus = getQuizJobStatus(docs, pendingDocIds)
+      if (jobStatus.state === 'success') {
+        return { ok: true }
+      }
+      if (jobStatus.state === 'failed') {
+        return {
+          ok: false,
+          message: jobStatus.failureReason || labels.quizGenerationFailed,
+        }
+      }
+    }
+    await sleep(QUIZ_POLL_INTERVAL_MS)
+  }
+  return { ok: false, message: labels.quizGenerationTimeout, timeout: true }
+}
 
 function documentStatusLabel(status, labels) {
   const normalized = normalizeProcessingStatus(status)
@@ -377,22 +441,31 @@ export default function CoursePage() {
     }
   }, [courseId, courseName])
 
-  const loadDocuments = useCallback(async () => {
-    if (!courseId) return
-    setDocumentsLoading(true)
-    setDocumentsError(null)
-    setDocumentsNotice(null)
+  const loadDocuments = useCallback(async ({ silent = false } = {}) => {
+    if (!courseId) return null
+    if (!silent) {
+      setDocumentsLoading(true)
+      setDocumentsError(null)
+      setDocumentsNotice(null)
+    }
     try {
       const session = await fetchAuthSession()
       const idToken = session.tokens?.idToken?.toString()
       if (!idToken) {
-        setDocuments([])
-        setDocumentsError(t.coursePage.uploadMissingSession)
-        return
+        if (!silent) {
+          setDocuments([])
+          setDocumentsError(t.coursePage.uploadMissingSession)
+        }
+        return null
       }
       const list = await getCourseDocuments(courseId, idToken)
       setDocuments(list)
+      return list
     } catch (err) {
+      if (silent) {
+        setDocumentsNotice(t.coursePage.documentsRefreshFailed)
+        return null
+      }
       let message = t.coursePage.documentsError
       const apiMsg = err?.response?.data?.message
       if (typeof apiMsg === 'string' && apiMsg.trim()) {
@@ -402,26 +475,37 @@ export default function CoursePage() {
       }
       setDocumentsError(message)
       setDocuments([])
+      return null
     } finally {
-      setDocumentsLoading(false)
+      if (!silent) {
+        setDocumentsLoading(false)
+      }
     }
   }, [courseId, t])
 
-  const loadQuestionSets = useCallback(async () => {
-    if (!courseId) return
-    setQuestionSetsLoading(true)
-    setQuestionSetsError(null)
+  const loadQuestionSets = useCallback(async ({ silent = false } = {}) => {
+    if (!courseId) return null
+    if (!silent) {
+      setQuestionSetsLoading(true)
+      setQuestionSetsError(null)
+    }
     try {
       const session = await fetchAuthSession()
       const idToken = session.tokens?.idToken?.toString()
       if (!idToken) {
-        setQuestionSets([])
-        setQuestionSetsError(t.coursePage.uploadMissingSession)
-        return
+        if (!silent) {
+          setQuestionSets([])
+          setQuestionSetsError(t.coursePage.uploadMissingSession)
+        }
+        return null
       }
       const sets = await getQuestionSets(courseId, idToken)
       setQuestionSets(sets)
+      return sets
     } catch (err) {
+      if (silent) {
+        return null
+      }
       const apiMsg = err?.response?.data?.message
       setQuestionSetsError(
         typeof apiMsg === 'string' && apiMsg.trim()
@@ -429,8 +513,11 @@ export default function CoursePage() {
           : t.coursePage.questionSetsLoadError,
       )
       setQuestionSets([])
+      return null
     } finally {
-      setQuestionSetsLoading(false)
+      if (!silent) {
+        setQuestionSetsLoading(false)
+      }
     }
   }, [courseId, t])
 
@@ -679,22 +766,22 @@ export default function CoursePage() {
     })
   }, [eligibleDocIds, selectedDocIds.length])
 
+  const shouldPollDocuments = documents.some((doc) => {
+    const status = normalizeProcessingStatus(doc.processing_status ?? doc.processingStatus)
+    return !FINAL_PROCESSING_STATUSES.has(status)
+  })
+
   useEffect(() => {
-    if (authStatus !== 'authed' || !courseId) return undefined
-
-    const hasNonFinalDocuments = documents.some((doc) => {
-      const status = normalizeProcessingStatus(doc.processing_status ?? doc.processingStatus)
-      return !FINAL_PROCESSING_STATUSES.has(status)
-    })
-
-    if (!hasNonFinalDocuments) return undefined
+    if (authStatus !== 'authed' || !courseId || !shouldPollDocuments) return undefined
+    if (isGeneratingQuiz) return undefined
+    if (activeTab !== 'materials') return undefined
 
     const intervalId = window.setInterval(() => {
-      loadDocuments()
-    }, 7000)
+      loadDocuments({ silent: true })
+    }, DOCUMENT_POLL_INTERVAL_MS)
 
     return () => window.clearInterval(intervalId)
-  }, [authStatus, courseId, documents, loadDocuments])
+  }, [authStatus, courseId, shouldPollDocuments, isGeneratingQuiz, activeTab, loadDocuments])
 
   const closeUploadModal = useCallback(() => {
     dragDepthRef.current = 0
@@ -774,7 +861,7 @@ export default function CoursePage() {
       }
 
       setSelectedFiles([])
-      await loadDocuments()
+      await loadDocuments({ silent: documents.length > 0 })
       setUploadSuccess(true)
     } catch (err) {
       let message = t.coursePage.uploadError
@@ -791,7 +878,7 @@ export default function CoursePage() {
       setIsUploading(false)
       setUploadProgress(null)
     }
-  }, [courseId, isUploading, loadDocuments, selectedFiles, t, tx])
+  }, [courseId, isUploading, loadDocuments, selectedFiles, documents.length, t, tx])
 
   useEffect(() => {
     let cancelled = false
@@ -912,8 +999,10 @@ export default function CoursePage() {
   }
 
   const materialsCount = documents.length
-  const showDocList = !documentsLoading && !documentsError && documents.length > 0
-  const showDocEmpty = !documentsLoading && !documentsError && documents.length === 0
+  const showDocSkeleton = documentsLoading && documents.length === 0
+  const showDocList = !showDocSkeleton && !documentsError && documents.length > 0
+  const showDocEmpty = !showDocSkeleton && !documentsLoading && !documentsError && documents.length === 0
+  const showQuestionSetsSkeleton = questionSetsLoading && questionSets.length === 0
   const inQuizSession = questionMode === 'practice' || questionMode === 'results'
   const showQuestionSetDetail = Boolean(
     selectedQuestionSet && (inQuizSession || setQuestionsLoading),
@@ -992,6 +1081,7 @@ export default function CoursePage() {
   const handleGenerateQuiz = async () => {
     if (!courseId || selectedDocIds.length === 0 || isGeneratingQuiz) return
 
+    const pendingDocIds = [...selectedDocIds]
     setDocumentsError(null)
     setDocumentsNotice(null)
     setQuizStartedNotice(null)
@@ -1003,13 +1093,22 @@ export default function CoursePage() {
       if (!idToken) {
         throw new Error(t.coursePage.uploadMissingSession)
       }
-      await generateQuiz(courseId, selectedDocIds, idToken)
+      await generateQuiz(courseId, pendingDocIds, idToken)
+
+      const result = await waitForQuizCompletion(
+        pendingDocIds,
+        loadDocuments,
+        loadQuestionSets,
+        t.coursePage,
+      )
+      if (!result.ok) {
+        throw new Error(result.message || t.coursePage.quizGenerationFailed)
+      }
+
       setSelectionMode(false)
       setSelectedDocIds([])
-      setQuizStartedNotice(t.coursePage.success)
-      await loadDocuments()
-      await loadQuestionSets()
-      setQuestionSetsNotice(null)
+      setQuestionSetsNotice(t.coursePage.quizGenerationComplete)
+      setQuizStartedNotice(null)
       setQuestionSetsError(null)
       setSetQuestionsError(null)
       setActiveTab('questionSets')
@@ -1274,7 +1373,7 @@ export default function CoursePage() {
                 </div>
               </div>
 
-              {documentsLoading ? (
+              {showDocSkeleton ? (
                 <div className="course-page__documents-skeleton" aria-busy="true">
                   <div className="course-page__documents-skeleton-row" />
                   <div className="course-page__documents-skeleton-row" />
@@ -1283,13 +1382,13 @@ export default function CoursePage() {
                 </div>
               ) : null}
 
-              {documentsError && !documentsLoading ? (
+              {documentsError && !showDocSkeleton ? (
                 <p className="course-page__documents-error" role="alert">
                   {documentsError}
                 </p>
               ) : null}
 
-              {quizError && !documentsLoading ? (
+              {quizError && !showDocSkeleton ? (
                 <div className="course-page__quiz-error" role="alert">
                   <p className="course-page__quiz-error-text">{quizError}</p>
                   <button
@@ -1303,13 +1402,13 @@ export default function CoursePage() {
                 </div>
               ) : null}
 
-              {documentsNotice && !documentsLoading ? (
+              {documentsNotice && !showDocSkeleton ? (
                 <p className="course-page__documents-notice" role="status">
                   {documentsNotice}
                 </p>
               ) : null}
 
-              {quizStartedNotice && !documentsLoading ? (
+              {quizStartedNotice && !showDocSkeleton ? (
                 <p className="course-page__documents-notice" role="status">
                   {quizStartedNotice}
                 </p>
@@ -1435,16 +1534,16 @@ export default function CoursePage() {
               ) : null}
               {!showQuestionSetDetail ? (
                 <>
-                  {questionSetsLoading ? (
+                  {showQuestionSetsSkeleton ? (
                     <div className="course-page__documents-skeleton" aria-busy="true">
                       <div className="course-page__documents-skeleton-row" />
                       <div className="course-page__documents-skeleton-row" />
                     </div>
                   ) : null}
-                  {!questionSetsLoading && questionSets.length === 0 ? (
+                  {!showQuestionSetsSkeleton && questionSets.length === 0 ? (
                     <p className="course-page__materials-empty">{t.coursePage.questionSetsEmpty}</p>
                   ) : null}
-                  {!questionSetsLoading && questionSets.length > 0 ? (
+                  {!showQuestionSetsSkeleton && questionSets.length > 0 ? (
                     <ul className="course-page__set-list course-page__set-list--preview">
                       {questionSets.map((setItem) => {
                         const setId = setItem.set_id
