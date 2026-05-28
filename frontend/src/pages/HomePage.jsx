@@ -102,22 +102,6 @@ function IconNavSettings() {
   )
 }
 
-function IconNavSupport() {
-  return (
-    <svg className="home-page__nav-icon" width="20" height="20" viewBox="0 0 24 24" aria-hidden>
-      <circle cx="12" cy="12" r="9" fill="none" stroke="currentColor" strokeWidth="1.5" />
-      <path
-        fill="none"
-        stroke="currentColor"
-        strokeWidth="1.5"
-        strokeLinecap="round"
-        strokeLinejoin="round"
-        d="M9.09 9a3 3 0 115.82 1c0 2-3 2-3 4M12 17h.01"
-      />
-    </svg>
-  )
-}
-
 function IconSearch() {
   return (
     <svg className="home-page__toolbar-icon" width="18" height="18" viewBox="0 0 24 24" aria-hidden>
@@ -184,35 +168,6 @@ function IconMetaClock() {
     <svg className="home-page__meta-icon" width="16" height="16" viewBox="0 0 24 24" aria-hidden>
       <circle cx="12" cy="12" r="9" fill="none" stroke="currentColor" strokeWidth="1.5" />
       <path fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" d="M12 7v5l3 2" />
-    </svg>
-  )
-}
-
-function IconFabPdf() {
-  return (
-    <svg width="20" height="20" viewBox="0 0 24 24" aria-hidden>
-      <path
-        fill="none"
-        stroke="currentColor"
-        strokeWidth="1.5"
-        strokeLinecap="round"
-        d="M14 2H8a2 2 0 00-2 2v16a2 2 0 002 2h8a2 2 0 002-2V8l-6-6z M14 2v6h6M10 12h4M10 16h4"
-      />
-    </svg>
-  )
-}
-
-function IconFabHelp() {
-  return (
-    <svg width="20" height="20" viewBox="0 0 24 24" aria-hidden>
-      <circle cx="12" cy="12" r="9" fill="none" stroke="currentColor" strokeWidth="1.5" />
-      <path
-        fill="none"
-        stroke="currentColor"
-        strokeWidth="1.75"
-        strokeLinecap="round"
-        d="M9.75 9.75a2.25 2.25 0 114.5 0c0 1.75-2.25 2-2.25 3.75M12 17h.01"
-      />
     </svg>
   )
 }
@@ -590,14 +545,10 @@ export default function HomePage() {
               {t.common.langEn}
             </button>
           </div>
-          <nav className="home-page__menu home-page__menu--compact" aria-label={`${t.home.settings}, ${t.home.support}`}>
+          <nav className="home-page__menu home-page__menu--compact" aria-label={t.home.settings}>
             <button type="button" className="home-page__menu-item">
               <IconNavSettings />
               <span>{t.home.settings}</span>
-            </button>
-            <button type="button" className="home-page__menu-item">
-              <IconNavSupport />
-              <span>{t.home.support}</span>
             </button>
           </nav>
         </div>
@@ -760,14 +711,6 @@ export default function HomePage() {
         </section>
       </section>
 
-      <div className="home-page__fab-stack">
-        <button type="button" className="home-page__fab home-page__fab--pdf" aria-label={t.home.materialsFabAria}>
-          <IconFabPdf />
-        </button>
-        <button type="button" className="home-page__fab home-page__fab--help" aria-label={t.home.helpFabAria}>
-          <IconFabHelp />
-        </button>
-      </div>
       {isCreateCourseOpen ? (
         <div
           className="home-page__modal-backdrop"

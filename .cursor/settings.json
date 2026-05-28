@@ -8,6 +8,9 @@
     },
     "aws-amplify": {
       "enabled": true
+    },
+    "databases-on-aws": {
+      "enabled": true
     }
   }
 }

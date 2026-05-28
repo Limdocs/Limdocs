@@ -1120,6 +1120,7 @@ export default function CoursePage() {
   const showDocEmpty = !showDocSkeleton && !documentsLoading && !documentsError && documents.length === 0
   const showQuestionSetsSkeleton = questionSetsLoading && questionSets.length === 0
   const inQuizSession = questionMode === 'practice' || questionMode === 'results'
+  const forceQuizRtl = inQuizSession || Boolean(viewingPastAttempt)
   const showQuestionSetDetail = Boolean(
     selectedQuestionSet && (inQuizSession || setQuestionsLoading),
   )
@@ -1748,7 +1749,7 @@ export default function CoursePage() {
                   ) : null}
                 </>
               ) : (
-                <div className="course-page__set-detail">
+                <div className="course-page__set-detail" dir={forceQuizRtl ? 'rtl' : undefined}>
                   <div className="course-page__set-detail-top">
                     <button
                       type="button"
@@ -1798,7 +1799,7 @@ export default function CoursePage() {
                 </h2>
               </div>
               {viewingPastAttempt ? (
-                <div className="course-page__past-attempt-detail">
+                <div className="course-page__past-attempt-detail" dir="rtl">
                   <div className="course-page__set-detail-top">
                     <button
                       type="button"

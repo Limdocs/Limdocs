@@ -1,125 +1,119 @@
 # Limdocs
 
-**Transforming Raw Academic Materials into Interactive AI-Powered Learning Experiences.**
+**Turn course materials into AI-generated practice quizzes and track what you need to study next.**
 
-AWS Serverless
-React Vite
-OpenAI LLM
-License MIT
+Limdocs is an adaptive learning platform for students: create course spaces, upload lecture PDFs and slides, extract text automatically, generate exam-style question sets with explanations, practice in the app, and review performance by topic over time.
 
----
-
-## Premium UX/UI
-
-Limdocs is designed as a modern academic product experience inspired by:
-
-- **Apple-style minimalism** for visual clarity and focus
-- **Stripe-level cleanliness** for structure, spacing, and hierarchy
-- **Instagram-like navigation fluency** for intuitive, high-frequency workflows
-
-Screenshots (placeholders):
-
-- `[Dashboard View]`
-- `[Course Space - RTL Support]`
-- `[AI Processing Status]`
+| | |
+|---|---|
+| **Frontend** | React 19, Vite, React Router, AWS Amplify Auth, AWS Amplify Hosting (GitHub-connected deploys) |
+| **Backend** | Python 3.9 on AWS Lambda (SAM), API Gateway, Cognito |
+| **AI / OCR** | Amazon Textract, OpenAI (`gpt-4.1-mini`) |
+| **Data** | DynamoDB, S3 |
 
 ---
 
-## The Core Mission
+## What you can do today
 
-Limdocs helps students convert fragmented study materials into structured, actionable learning flows.  
-Users manage courses, upload files securely, run automated AI extraction pipelines, and receive real-time processing feedback that turns static content into usable study assets.
+- **Sign up and sign in** with AWS Cognito (email/username), including account confirmation
+- **Switch Hebrew ↔ English** with persisted preference and full RTL/LTR layout
+- **Create and manage courses** (private or public visibility) from the dashboard
+- **Upload materials** via S3 pre-signed URLs (PDF, PNG, JPEG)
+- **Process documents** asynchronously with Textract, then extract bilingual sub-topics with OpenAI
+- **Generate question sets** from one or more ready documents (async worker, status polling in the UI)
+- **Take quizzes**, submit attempts, and review correct answers with explanations
+- **Browse attempt history** and reopen past submissions in read-only review mode
+- **View weakness analytics** per topic and difficulty on the course **Analyzed Weaknesses** tab (fed by quiz submissions)
+- **Delete** documents, attempts, question sets, or entire courses (cascading S3 + DynamoDB cleanup)
 
----
-
-## Key Features
-
-### 1) Bilingual Mastery
-
-- Full **RTL/LTR** experience for **Hebrew/English**
-- Persisted language preference across sessions
-- Consistent localization across auth, dashboard, and course workflows
-
-### 2) AI-Driven Pipeline
-
-- Automated document analysis powered by **Amazon Textract**
-- Asynchronous extraction flow for large/scanned academic files
-- Processing-state lifecycle management (`UPLOADED`, `EXTRACTED`, `FAILED`)
-
-### 3) Smart Course Management
-
-- Dedicated **Course Space** per course
-- Structured materials list with metadata and status visibility
-- Foundation for generated practice sets and adaptive study loops
-
-### 4) Real-time Feedback
-
-- Live polling on course documents while processing is in progress
-- Automatic UI refresh when statuses transition to final states
-- No page reload required for status visibility
+Some dashboard chrome (global search, Documents / Analytics nav items) is presentational only and does not yet route to separate pages.
 
 ---
 
-## Technical Architecture (High-Level Design)
+## Architecture
 
-Limdocs uses a **serverless, event-driven architecture** optimized for scalability, operational simplicity, and cost efficiency.
+Serverless, event-driven design on AWS:
 
-### Serverless Stack
+```
+Browser (React SPA)
+    → AWS Amplify Hosting (connected to GitHub for frontend CI/CD deploys)
+    → Cognito (auth) + API Gateway (REST, Cognito authorizer)
+        → Lambda handlers (courses, uploads, quizzes, attempts, progress)
+    → S3 raw uploads (pre-signed PUT) → S3 event → process_document Lambda
+        → Textract (async) → processed text in S3 → DynamoDB document status
+        → OpenAI topic extraction → status READY
+    → generate-quiz API → async worker Lambda → question_sets + questions tables
+    → submit attempt → grades answers → attempts + attempt_answers + user_progress matrix
+```
 
-- **AWS Lambda** for backend business logic and orchestration
-- **Amazon API Gateway** as authenticated REST entrypoint
-- **Amazon DynamoDB** for low-latency NoSQL metadata and state management
-- **Amazon S3** for raw uploads and processed outputs
-- **AWS Cognito** for authentication and session-backed authorization
+### AWS resources (SAM stack)
 
-### Secure File Handling
+| Service | Role |
+|---------|------|
+| **Cognito User Pool** | Authentication for the SPA |
+| **AWS Amplify Hosting** | Frontend hosting and CI/CD deployment from GitHub |
+| **API Gateway** | REST API (`/prod` stage), default Cognito authorizer |
+| **Lambda** | Business logic, Textract orchestration, quiz worker |
+| **DynamoDB** | `users`, `courses`, `documents`, `question_sets`, `questions`, `attempts`, `attempt_answers`, `user_progress` |
+| **S3** | Raw uploads (`uploads/` prefix) and processed text outputs |
+| **Textract** | OCR for uploaded PDFs/images |
+| **OpenAI** | Sub-topic extraction after OCR; quiz question generation |
 
-Limdocs uses **S3 Pre-signed URLs** for direct-to-cloud uploads:
+### Document processing lifecycle
 
-- keeps the upload bucket private
-- offloads file transfer from backend compute
-- improves throughput and reduces API/Lambda overhead
+Typical `processing_status` values on a document:
 
-### Event-Driven AI Pipeline
+| Status | Meaning |
+|--------|---------|
+| `UPLOADED` | Metadata recorded; file in S3 |
+| `PROCESSING` | Textract job in progress |
+| `READY` | Text extracted, topics available, eligible for quiz generation |
+| `GENERATING` | Quiz worker running for this document |
+| `FAILED` / `ERROR` | Processing or generation failed (`failure_reason` when set) |
 
-1. User uploads file to S3 (raw bucket)
-2. S3 event triggers processing Lambda
-3. Lambda starts asynchronous Textract job
-4. Orchestration polls Textract job status and paginates all result pages
-5. Extracted text is persisted to processed outputs bucket
-6. DynamoDB document state is updated for frontend visibility
+The course page polls materials while any document is not in a terminal state (`READY`, `FAILED`, `ERROR`).
 
-This design provides **Asynchronous Orchestration** with resilient status tracking for long-running academic documents.
+### Deletion semantics
 
-### Data Integrity and Cloud Hygiene
-
-Limdocs implements **Cascading Deletion** with **S3-first-then-DB** semantics:
-
-- delete raw and processed S3 objects first
-- then delete DynamoDB metadata records
-- prevents orphan files and stale metadata drift
-- improves long-term storage hygiene and operational correctness
-
-### Access Pattern-Oriented Data Modeling
-
-DynamoDB design follows **access-pattern-driven modeling** with **GSI optimization** for course-centric queries (for example: fetch all documents by `course_id` efficiently).
-
----
-
-## Technology Stack
-
-- **Frontend:** React 18, Vite, CSS3 (including logical properties for RTL/LTR support)
-- **Backend:** Python 3.12, AWS Lambda, AWS SAM (Infrastructure as Code)
-- **Auth:** AWS Cognito
-- **AI/OCR:** Amazon Textract (Async API)
-- **Data:** Amazon DynamoDB, Amazon S3
-- **API:** Amazon API Gateway
+Deletes follow **S3 first, then DynamoDB** for documents. Deleting a course cascades through documents (raw + processed buckets), question sets, questions, attempts, and attempt answers before removing the course row.
 
 ---
 
-## Installation & Local Development
+## Repository layout
 
-## 1) Frontend
+```
+Limdocs/
+├── frontend/          # React + Vite SPA
+├── backend/
+│   ├── template.yaml  # SAM / CloudFormation
+│   └── src/           # Lambda handlers
+├── docs/
+│   ├── design.md      # Product & architecture design (text)
+│   └── progress.log.md
+└── package.json       # npm workspaces (runs frontend scripts from root)
+```
+
+---
+
+## Local development
+
+### Prerequisites
+
+- Node.js 18+
+- Python 3.9+ (matches Lambda runtime in `backend/template.yaml`)
+- [AWS CLI](https://aws.amazon.com/cli/) configured
+- [AWS SAM CLI](https://docs.aws.amazon.com/serverless-application-model/latest/developerguide/install-sam-cli.html)
+
+### Frontend
+
+From the repo root:
+
+```bash
+npm install
+npm run dev
+```
+
+Or from `frontend/`:
 
 ```bash
 cd frontend
@@ -127,48 +121,90 @@ npm install
 npm run dev
 ```
 
-Optional local env:
+Copy `frontend/.env.example` to `frontend/.env.local` and set values from SAM stack outputs after deploy:
 
 ```bash
+VITE_COGNITO_USER_POOL_ID=<UserPoolId>
+VITE_COGNITO_USER_POOL_CLIENT_ID=<UserPoolClientId>
 VITE_API_URL=https://<api-id>.execute-api.<region>.amazonaws.com/prod
 ```
 
-## 2) Backend (SAM)
+The app uses the Cognito **ID token** as `Authorization: Bearer` for API Gateway.
+
+**Routes:** `/login`, `/register`, `/home`, `/course/:courseId`
+
+### Backend (SAM)
 
 ```bash
 cd backend
-sam build            # on Windows: sam build --use-container
+sam build            # Windows: sam build --use-container
 sam validate
 sam deploy --guided
 ```
 
-Quiz generation needs the **OpenAI SDK** bundled by `sam build` into the Lambda deployment package. Do not upload only `.py` files; run `sam build` before `sam deploy`, or the worker fails with `ModuleNotFoundError: No module named 'openai'`.
+During deploy you will be prompted for **`OpenAIApiKey`** (`NoEcho` parameter). Quiz generation and topic extraction depend on it.
 
-Recommended prerequisites:
+`sam build` must bundle Python dependencies from `backend/src/requirements.txt` (including `openai`). Do not deploy only `.py` sources without building, or workers will fail with `ModuleNotFoundError: no module named 'openai'`.
 
-- Node.js 18+
-- Python 3.12
-- AWS CLI configured (`aws configure`)
-- SAM CLI installed
+The stack is configured for **AWS Learner Lab** style accounts (`LabRole` IAM role). Adjust `Role` in `template.yaml` for other environments.
+
+**Key outputs:** `ApiUrl`, `UserPoolClientId`, bucket names, table names (see `Outputs` in `template.yaml`).
+
+### Main API surface
+
+All routes require Cognito auth unless noted. Owner checks apply on course-scoped operations.
+
+| Method | Path | Purpose |
+|--------|------|---------|
+| `POST` | `/users` | Sync user profile after signup |
+| `POST` | `/courses` | Create course |
+| `GET` | `/users/{userId}/courses` | List caller's courses |
+| `DELETE` | `/courses/{courseId}` | Delete course and all related data |
+| `POST` | `/courses/{courseId}/upload-url` | Pre-signed upload + document row |
+| `GET` | `/courses/{courseId}/materials` | List course documents |
+| `DELETE` | `/courses/{courseId}/documents/{documentId}` | Delete document |
+| `POST` | `/courses/{courseId}/generate-quiz` | Start async question generation (`202`) |
+| `GET` | `/courses/{courseId}/question-sets` | List question sets |
+| `GET` | `/courses/{courseId}/question-sets/{setId}` | Question set detail |
+| `DELETE` | `/courses/{courseId}/question-sets/{setId}` | Delete question set |
+| `POST` | `/courses/{courseId}/question-sets/{setId}/attempts` | Submit quiz attempt |
+| `GET` | `/courses/{courseId}/attempts` | List attempts |
+| `GET` | `/courses/{courseId}/attempts/{attemptId}/answers` | Attempt review payload |
+| `DELETE` | `/courses/{courseId}/attempts/{attemptId}` | Delete attempt |
+| `GET` | `/courses/{courseId}/progress` | Topic/difficulty mastery matrix |
+
+S3 uploads trigger `process_document` automatically (no HTTP route).
 
 ---
 
-## Future Roadmap
+## Technology stack
 
-- **Phase 4:** LLM-based Question Generation (OpenAI)
-- **Phase 5:** Student Progress Analytics and Interactive Quizzes
-
----
-
-## Authors
-
-- Jordan
-- Nadav
+| Layer | Choices |
+|-------|---------|
+| **UI** | React 19, Vite 8, CSS (logical properties for RTL/LTR), shared design tokens in `frontend/src/index.css` |
+| **Client auth** | `aws-amplify` v6 |
+| **Frontend hosting** | AWS Amplify Hosting (GitHub-connected build/deploy) |
+| **HTTP** | `axios` service modules under `frontend/src/services/` |
+| **IaC** | AWS SAM (`backend/template.yaml`) |
+| **Compute** | AWS Lambda (Python 3.9) |
+| **Auth** | Amazon Cognito User Pools |
+| **API** | Amazon API Gateway (REST) |
+| **Storage** | DynamoDB, S3 |
+| **OCR** | Amazon Textract (async document text detection) |
+| **LLM** | OpenAI API via official Python SDK |
 
 ---
 
 ## Documentation
 
-- Design document: `docs/design.md`
-- Engineering progress log: `docs/progress.log.md`
+- [Design document](docs/design.md) — product goals, AWS module mapping, data model notes
+- [Progress log](docs/progress.log.md) — chronological engineering milestones
 
+---
+
+## Authors
+
+- Yarden Vaknin
+- Nadav Masliah
+
+*Cloud Computing Workshop with AWS — The Academic College of Tel Aviv-Yafo.*
